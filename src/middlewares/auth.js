@@ -1,4 +1,3 @@
-const { decodeBase64 } = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv');
 
