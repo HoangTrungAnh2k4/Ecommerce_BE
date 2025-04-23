@@ -8,15 +8,7 @@ const app = express();
 const hostname = 'localhost';
 const port = process.env.PORT;
 
-app.use(
-    cors({
-        origin: 'https://ecommerce-web-fullstack-wr3w.vercel.app/',
-        methods: ['GET', 'POST', 'PUT', 'DELETE'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-        credentials: true,
-        exposedHeaders: ['Content-Length'],
-    }),
-);
+
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
