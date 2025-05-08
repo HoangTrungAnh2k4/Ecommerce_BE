@@ -1,38 +1,27 @@
-const pool = require('../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
+const UserModel = require('../models/userModel');
+
 const authServices = {
     register: async (data) => {
         try {
-            const { name, email, address, phoneNumber, password, role } = data;
-
-            // Bước 1: Chèn vào bảng user
-            const [rows] = await pool.query(
-                'INSERT INTO user (name, email, address, phoneNumber, role) VALUES (?, ?, ?, ?, ?)',
-                [name, email, address, phoneNumber, role],
-            );
-
-            const userId = rows.insertId; // Lấy ID của user vừa tạo
-
-            const hash = bcrypt.hashSync(password, 10);
-
-            // Bước 2: Chèn vào bảng auth_credentials (sau khi bước 1 hoàn thành)
-            await pool.query('INSERT INTO auth_credentials (user_id, phoneNumber , password) VALUES (?,?, ?)', [
-                userId,
+            const { username, phoneNumber, password } = data;
+            const hashedPassword = bcrypt.hashSync(password, 8);
+            const result = await UserModel.create({
+                username,
                 phoneNumber,
-                hash,
-            ]);
+                password: hashedPassword,
+            });
 
-            // Thành công
             return {
                 status: 200,
-                message: 'Đăng ký thành công',
+                message: 'Đăng ký tài khoản thành công' + result,
             };
         } catch (error) {
             console.error('Database query error:', error);
-            if (error.code === 'ER_DUP_ENTRY') {
+            if (error.code == 11000) {
                 return { status: 409, message: 'Số điện thoại này đã được đăng ký. Vui lòng dùng số khác.' };
             }
 
@@ -42,26 +31,17 @@ const authServices = {
 
     login: async (phoneNumber, password) => {
         try {
-            const sql = 'SELECT * FROM auth_credentials WHERE phoneNumber = ?';
-
-            const [rows, fields] = await pool.query(sql, [phoneNumber]);
-            if (rows.length === 0) {
-                return { status: 401, message: 'Invalid phoneNumber or password' };
+            const userInfor = await UserModel.findOne({ phoneNumber });
+            if (!userInfor) {
+                return { status: 404, message: 'Số điện thoại hoặc mật khẩu không chính xác!' };
             }
 
-            const userAccount = rows[0];
-            const isPasswordValid = bcrypt.compareSync(password, userAccount.password);
+            const isPasswordValid = bcrypt.compareSync(password, userInfor.password);
             if (!isPasswordValid) {
-                return { status: 401, message: 'Invalid phoneNumber or password' };
+                return { status: 404, message: 'Số điện thoại hoặc mật khẩu không chính xác!' };
             }
 
-            const [userInfor] = await pool.query('select id, name, role from user where id = ?', [userAccount.user_id]);
-
-            if (!userInfor || userInfor.length === 0) {
-                return { status: 404, message: 'User information not found' };
-            }
-
-            const payload = { phoneNumber, userInfor: userInfor[0] };
+            const payload = { phoneNumber, username: userInfor.username, role: userInfor.role };
             const access_token = jwt.sign(payload, process.env.JWT_SECRET, {
                 expiresIn: process.env.JWT_EXPIRE,
             });
@@ -70,7 +50,7 @@ const authServices = {
                 status: 200,
                 data: {
                     access_token,
-                    user: { ...userInfor[0], phoneNumber },
+                    user: { username: userInfor.username, role: userInfor.role, phoneNumber },
                 },
             };
         } catch (error) {

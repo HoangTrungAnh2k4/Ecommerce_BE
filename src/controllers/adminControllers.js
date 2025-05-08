@@ -87,9 +87,7 @@ const adminControllers = {
         }
     },
 
-    updateEquipment: async (req, res) => {
-        
-    }
+    updateEquipment: async (req, res) => {},
 };
 
 module.exports = adminControllers;
