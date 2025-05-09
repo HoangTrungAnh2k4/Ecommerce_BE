@@ -43,8 +43,6 @@ const userControllers = {
     },
 
     getUserInfor: async (req, res) => {
-        console.log(req.user);
-
         try {
             res.status(200).json(req.user);
         } catch (err) {
@@ -56,13 +54,13 @@ const userControllers = {
         try {
             const { value, comment, equipment_id } = req.body;
             const user = {
-                id: req.user.userInfor.id,
-                name: req.user.userInfor.name,
+                id: req.user.id,
+                name: req.user.username,
             };
             const rate = {
                 value: parseInt(value),
                 comment: comment,
-                equipment_id: parseInt(equipment_id),
+                equipmentId: equipment_id,
             };
 
             const result = await userService.postRate(user, rate);
@@ -100,10 +98,10 @@ const userControllers = {
 
     addToCart: async (req, res) => {
         try {
-            const userId = req.user.userInfor.id;
+            const userId = req.user.id;
             const { equipmentId, quantity } = req.body;
             const equipment = {
-                id: parseInt(equipmentId),
+                id: equipmentId,
                 quantity: parseInt(quantity),
             };
 
@@ -118,7 +116,7 @@ const userControllers = {
 
     getCart: async (req, res) => {
         try {
-            const userId = req.user.userInfor.id;
+            const userId = req.user.id;
 
             if (!userId) return res.status(400).json({ error: 'Invalid id user_id' });
 
@@ -132,7 +130,7 @@ const userControllers = {
     deleteItemCart: async (req, res) => {
         try {
             const equipmentId = req.params.id;
-            const userId = req.user.userInfor.id;
+            const userId = req.user.id;
 
             if (!userId) return res.status(400).json({ error: 'Invalid id user_id' });
             if (!equipmentId) return res.status(400).json({ error: 'Invalid id equipment_id' });
@@ -148,7 +146,7 @@ const userControllers = {
         try {
             const { listEquipment } = req.body;
 
-            const userId = req.user.userInfor.id;
+            const userId = req.user.id;
 
             if (!userId) return res.status(400).json({ error: 'Invalid id user_id' });
             if (!listEquipment) return res.status(400).json({ error: 'Invalid id listEquipment' });
@@ -162,7 +160,7 @@ const userControllers = {
 
     getOrder: async (req, res) => {
         try {
-            const userId = req.user.userInfor.id;
+            const userId = req.user.id;
 
             if (!userId) return res.status(400).json({ error: 'Invalid id user_id' });
 

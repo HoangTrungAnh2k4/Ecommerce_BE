@@ -1,9 +1,25 @@
 const EquipmentModel = require('../models/equipmentModel');
+const EvaluationModel = require('../models/evaluationModel');
 
 const adminServices = {
     addProduct: async (data) => {
         try {
             const { name, type, sold_quantity, price, discount, urlImage, best_seller, stock_quantity } = data;
+
+            const newEquipment = await EquipmentModel.create({
+                name,
+                type,
+                sold_quantity,
+                price,
+                discount,
+                urlImage,
+                best_seller,
+                stock_quantity,
+            });
+
+            if (newEquipment?.length === 0) {
+                return { status: 400, message: 'Thêm thiết bị không thành công' };
+            }
 
             return {
                 status: 200,
@@ -34,6 +50,12 @@ const adminServices = {
 
     deleteRate: async (id) => {
         try {
+            const result = await EvaluationModel.deleteOne({ _id: id });
+
+            if (result.deletedCount === 0) {
+                return { status: 404, message: 'Đánh giá không tồn tại' };
+            }
+
             return {
                 status: 200,
                 message: 'Xóa đánh giá thành công',

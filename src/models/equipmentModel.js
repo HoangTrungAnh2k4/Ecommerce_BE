@@ -1,12 +1,12 @@
 const mongoose = require('mongoose');
-const { validate } = require('./userModel');
 
 const equipmentSchema = new mongoose.Schema({
     name: {
         type: String,
         required: true,
+        unique: true,
     },
-    image: {
+    urlImage: {
         type: String,
         required: true,
     },

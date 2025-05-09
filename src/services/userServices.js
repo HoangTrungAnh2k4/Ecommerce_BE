@@ -1,4 +1,7 @@
-const pool = require('../config/db');
+const equipmentModel = require('../models/equipmentModel');
+const evaluationModel = require('../models/evaluationModel');
+const cartModel = require('../models/cartModel');
+const orderModel = require('../models/orderModel');
 
 const userService = {
     test: async () => {
@@ -22,8 +25,7 @@ const userService = {
 
     getListEquipmentByType: async (type) => {
         try {
-            const sql = `SELECT * FROM equipment WHERE equipment.type = ? ORDER BY equipment.sold_quantity`;
-            const [equipmentInfor] = await pool.query(sql, [type]);
+            const equipmentInfor = await equipmentModel.find({ type: type }).sort({ sold_quantity: -1 });
 
             if (equipmentInfor.length === 0) {
                 return { status: 404, message: 'Data not found' };
@@ -31,25 +33,26 @@ const userService = {
 
             return { status: 200, data: equipmentInfor };
         } catch (err) {
-            console.error('Error:', err);
-            if (err.code === 'ER_NO_SUCH_TABLE') {
-                throw new Error('TABLE_NOT_FOUND');
-            } else {
-                throw new Error('DATABASE_ERROR');
+            console.error('Database query error:', error);
+            if (error.code == 11000) {
+                return { status: 409, message: 'Sản phẩm này đã tồn tại' };
             }
+
+            return { status: 500, message: 'Internal Server Error' };
         }
     },
 
     getListBestSeller: async (type) => {
         try {
-            const sql = `SELECT * FROM equipment WHERE type = ? AND best_seller = 1 ORDER BY sold_quantity desc limit 10`;
-            const [equipmentInfor] = await pool.query(sql, [type]);
-
-            if (equipmentInfor.length === 0) {
+            const listEquipment = await equipmentModel
+                .find({ type: type, best_seller: true })
+                .sort({ sold_quantity: -1 })
+                .limit(10);
+            if (listEquipment.length === 0) {
                 return { status: 404, message: 'Data not found' };
             }
 
-            return { status: 200, data: equipmentInfor };
+            return { status: 200, data: listEquipment };
         } catch (error) {
             console.error('Error:', error);
             if (error.code === 'ER_NO_SUCH_TABLE') {
@@ -62,12 +65,16 @@ const userService = {
 
     postRate: async (user, rate) => {
         try {
-            const sql = `insert into evaluation (value, comment, user_id, user_name, equipment_id) values (?, ?, ?, ?, ?)`;
-            const params = [rate.value, rate.comment, user.id, user.name, rate.equipment_id];
-            const [results] = await pool.query(sql, params);
+            const results = await evaluationModel.create({
+                userID: user.id,
+                userName: user.name,
+                equipment: rate.equipmentId,
+                value: rate.value,
+                comment: rate.comment,
+            });
 
-            if (results.affectedRows === 0) {
-                return { status: 404, message: 'Equipment not found' };
+            if (results.length === 0) {
+                return { status: 404, message: 'Rate fail' };
             }
 
             return { status: 200, message: 'Rate  successfully' };
@@ -83,9 +90,12 @@ const userService = {
 
     getRate: async (id) => {
         try {
-            const sql = `select * from evaluation where equipment_id = ?`;
-            const params = [id];
-            const [results] = await pool.query(sql, params);
+            const results = await evaluationModel
+                .find({ equipment: id })
+                .populate('userID', 'username')
+                .populate('equipment', 'name')
+                .sort({ updatedAt: -1 });
+
             if (results.length === 0) {
                 return { status: 404, message: 'Rate not found' };
             }
@@ -103,15 +113,13 @@ const userService = {
 
     getEquipmentDetail: async (id) => {
         try {
-            const sql = `SELECT * FROM equipment WHERE id = ?`;
-            const params = [id];
-            const [results] = await pool.query(sql, params);
+            const results = await equipmentModel.findById(id);
 
-            if (results.length === 0) {
+            if (!results) {
                 return { status: 404, message: 'Equipment not found' };
             }
 
-            return { status: 200, data: results[0] };
+            return { status: 200, data: results };
         } catch (error) {
             console.error('Error:', error);
             if (error.code === 'ER_NO_SUCH_TABLE') {
@@ -124,33 +132,32 @@ const userService = {
 
     addToCart: async (userId, equipment) => {
         try {
-            const sql1 = `select id from cart where user_id = ?`;
-            const params1 = [userId];
-            const [results1] = await pool.query(sql1, params1);
+            let cart = await cartModel.findOne({ user_id: userId });
 
-            let cartId = null;
-
-            if (results1.length === 0) {
-                const sql2 = `insert into cart (user_id) values (?)`;
-                const params2 = [userId];
-                const [results2] = await pool.query(sql2, params2);
-
-                if (results2.affectedRows === 0) {
-                    return { status: 404, message: 'User not found' };
+            if (!cart) {
+                cart = await cartModel.create({
+                    user_id: userId,
+                    list_product: [],
+                });
+                if (!cart) {
+                    return { status: 500, message: 'Create cart failed' };
                 }
-
-                cartId = results2.insertId;
             }
 
-            // thêm thiết bị vào bảng cart_item
+            const existingItem = cart.list_product.find(
+                (item) => item.product_id.toString() === equipment.id.toString(),
+            );
 
-            const sql4 = `insert into cart_item (cart_id, equipment_id, quantity) values (?, ?, ?)`;
-            const params4 = [cartId || results1[0].id, equipment.id, equipment.quantity];
-            const [results4] = await pool.query(sql4, params4);
-
-            if (results4.affectedRows === 0) {
-                return { status: 404, message: 'Equipment not found' };
+            if (existingItem) {
+                existingItem.quantity += equipment.quantity;
+            } else {
+                cart.list_product.push({
+                    product_id: equipment.id,
+                    quantity: equipment.quantity,
+                });
             }
+
+            await cart.save(); // Lưu thay đổi
 
             return { status: 200, message: 'Add to cart successfully' };
         } catch (error) {
@@ -167,23 +174,12 @@ const userService = {
 
     getCart: async (userId) => {
         try {
-            const sql1 = `select id from cart where user_id = ?`;
-            const params1 = [userId];
-            const [results1] = await pool.query(sql1, params1);
-
-            if (results1.length === 0) {
+            const result = await cartModel.findOne({ user_id: userId });
+            if (!result) {
                 return { status: 404, message: 'Cart not found' };
             }
 
-            const sql2 = `select * from cart_item where cart_id = ?`;
-            const params2 = [results1[0].id];
-            const [results2] = await pool.query(sql2, params2);
-
-            if (results2.length === 0) {
-                return { status: 404, message: 'Cart item not found' };
-            }
-
-            return { status: 200, data: results2 };
+            return { status: 200, data: result.list_product };
         } catch (error) {
             console.error('Error:', error);
             if (error.code === 'ER_NO_SUCH_TABLE') {
@@ -196,21 +192,20 @@ const userService = {
 
     deleteItemCart: async (userId, equipmentId) => {
         try {
-            const sql1 = `select id from cart where user_id = ?`;
-            const params1 = [userId];
-            const [results1] = await pool.query(sql1, params1);
-
-            if (results1.length === 0) {
+            const cartItem = await cartModel.findOne({ user_id: userId });
+            if (!cartItem) {
                 return { status: 404, message: 'Cart not found' };
             }
 
-            const sql2 = `delete from cart_item where cart_id = ? and equipment_id = ?`;
-            const params2 = [results1[0].id, equipmentId];
-            const [results2] = await pool.query(sql2, params2);
-
-            if (results2.affectedRows === 0) {
-                return { status: 404, message: 'Equipment not found in cart' };
+            const itemIndex = cartItem.list_product.findIndex(
+                (item) => item.product_id.toString() === equipmentId.toString(),
+            );
+            if (itemIndex === -1) {
+                return { status: 404, message: 'Item not found in cart' };
             }
+
+            cartItem.list_product.splice(itemIndex, 1); // Xóa sản phẩm khỏi giỏ hàng
+            await cartItem.save(); // Lưu thay đổi
 
             return { status: 200, message: 'Delete item successfully' };
         } catch (error) {
@@ -225,55 +220,71 @@ const userService = {
         }
     },
 
-    addNewOrder: async (userId, listEquipmentId) => {
+    addNewOrder: async (userId, listEquipment) => {
+        if (!userId) {
+            return { status: 400, message: 'Invalid userId' };
+        }
+
         try {
-            const sql = `insert into order_common (user_id) values (?)`;
-            const params = [userId];
-            const [results] = await pool.query(sql, params);
+            const result = await orderModel.findOne({ user_id: userId });
 
-            if (results.affectedRows === 0) {
-                return { status: 404, message: 'User not found' };
-            }
+            const listEquipIds = listEquipment.map((eq) => {
+                return {
+                    equipment_id: eq.equipmentId,
+                    quantity: eq.quantity,
+                };
+            });
 
-            const orderId = results.insertId;
+            if (!result) {
+                const newOrder = await orderModel.create({
+                    user_id: userId,
+                    list_order: [
+                        {
+                            equipmentList: listEquipIds,
+                        },
+                    ],
+                });
 
-            const sql2 = `insert into order_detail (order_id, equipment_id, quantity) values ?`;
-            const params2 = listEquipmentId.map((equipment) => [orderId, equipment.id, equipment.quantity]);
-            const [results2] = await pool.query(sql2, [params2]);
-
-            if (results2.affectedRows === 0) {
-                return { status: 404, message: 'Equipment not found' };
+                if (!newOrder) {
+                    return { status: 500, message: 'Create order failed' };
+                }
+            } else {
+                await orderModel.updateOne(
+                    { user_id: userId },
+                    {
+                        $push: {
+                            list_order: {
+                                equipmentList: listEquipIds,
+                            },
+                        },
+                    },
+                    { runValidators: true },
+                );
             }
 
             return { status: 200, message: 'Add new order successfully' };
         } catch (error) {
-            console.error('Error:', error);
-            if (error.code === 'ER_NO_SUCH_TABLE') {
-                throw new Error('TABLE_NOT_FOUND');
-            } else if (error.code === 'ER_DUP_ENTRY') {
-                return { status: 409, message: 'Duplicate entry' };
-            } else {
-                throw new Error('DATABASE_ERROR');
-            }
+            console.error('Error in addNewOrder:', error);
+            return { status: 500, message: 'Server error', error: error.message };
         }
     },
 
     getOrder: async (userId) => {
         try {
-            const sql = `
-                        SELECT od.*, oc.date
-                        FROM order_detail od
-                        JOIN order_common oc ON od.order_id = oc.order_id
-                        WHERE oc.user_id = ?
-                        ORDER BY od.order_id DESC
-                        `;
+            const results = await orderModel
+                .findOne({ user_id: userId })
+                .populate('list_order.equipmentList.equipment_id', 'name price sold_quantity urlImage')
+                .sort({ 'list_order.date': 1 });
 
-            const [results2] = await pool.query(sql, [userId]);
-
-            if (results2.length === 0) {
-                return { status: 404, message: 'Order detail not found' };
+            if (!results) {
+                return { status: 404, message: 'Order not found' };
             }
-            return { status: 200, data: results2 };
+
+            if (results.list_order) {
+                results.list_order.sort((a, b) => new Date(b.date) - new Date(a.date));
+            }
+
+            return { status: 200, data: results.list_order };
         } catch (error) {
             console.error('Error:', error);
             if (error.code === 'ER_NO_SUCH_TABLE') {
@@ -288,26 +299,17 @@ const userService = {
 
     search: async (search, page = 1, limit = 10) => {
         try {
-            const offset = (page - 1) * limit;
-            const searchQuery = `%${search}%`;
+            const query = {
+                name: { $regex: search, $options: 'i' }, // tìm gần đúng, không phân biệt hoa thường
+            };
 
-            // Query chính
-            const query = `
-                            SELECT * FROM equipment
-                            WHERE name LIKE ? 
-                            LIMIT ? OFFSET ?
-                        `;
+            const skip = (page - 1) * limit;
 
-            // Đếm tổng số bản ghi phù hợp
-            const countQuery = `
-                                SELECT COUNT(*) as total FROM equipment
-                                WHERE name LIKE ? 
-                            `;
+            const [equipment, total] = await Promise.all([
+                equipmentModel.find(query).skip(skip).limit(limit),
+                equipmentModel.countDocuments(query),
+            ]);
 
-            const [equipment] = await pool.query(query, [searchQuery, limit, offset]);
-            const [countResult] = await pool.query(countQuery, [searchQuery]);
-
-            const total = countResult[0].total;
             const totalPages = Math.ceil(total / limit);
 
             return {
@@ -330,21 +332,26 @@ const userService = {
 
     updateEquipment: async (listEquipment) => {
         try {
-            const ids = listEquipment.map((eq) => eq.id).join(', ');
-            const caseSql = listEquipment.map((eq) => `WHEN ${eq.id} THEN ${eq.quantity}`).join('\n');
+            const results = await Promise.all(
+                listEquipment.map((item) =>
+                    equipmentModel.updateOne(
+                        { _id: item.equipmentId },
+                        {
+                            $inc: {
+                                sold_quantity: item.quantity,
+                                stock_quantity: -item.quantity,
+                            },
+                        },
+                    ),
+                ),
+            );
 
-            const sql = `
-                        UPDATE equipment
-                        SET sold_quantity = sold_quantity + CASE id
-                            ${caseSql}
-                        END
-                        WHERE id IN (${ids});
-                        `;
-
-            const [results] = await pool.query(sql);
-
-            if (results.affectedRows === 0) {
-                return { status: 404, message: 'Equipment not found' };
+            const failed = results.filter((res) => res.matchedCount === 0);
+            if (failed.length > 0) {
+                return {
+                    status: 400,
+                    message: 'Một số thiết bị không tồn tại hoặc không đủ hàng',
+                };
             }
 
             return { status: 200, message: 'Update equipment successfully' };

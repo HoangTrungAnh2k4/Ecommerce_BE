@@ -41,7 +41,7 @@ const authServices = {
                 return { status: 404, message: 'Số điện thoại hoặc mật khẩu không chính xác!' };
             }
 
-            const payload = { phoneNumber, username: userInfor.username, role: userInfor.role };
+            const payload = { id: userInfor._id, phoneNumber, username: userInfor.username, role: userInfor.role };
             const access_token = jwt.sign(payload, process.env.JWT_SECRET, {
                 expiresIn: process.env.JWT_EXPIRE,
             });
