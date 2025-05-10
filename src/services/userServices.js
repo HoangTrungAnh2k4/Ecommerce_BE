@@ -224,6 +224,7 @@ const userService = {
         if (!userId) {
             return { status: 400, message: 'Invalid userId' };
         }
+        console.log('userId', userId);
 
         try {
             const result = await orderModel.findOne({ user_id: userId });
@@ -235,7 +236,11 @@ const userService = {
                 };
             });
 
+            console.log('result', result);
+
             if (!result) {
+                console.log('Creating new order');
+
                 const newOrder = await orderModel.create({
                     user_id: userId,
                     list_order: [

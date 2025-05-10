@@ -1,5 +1,6 @@
-const EquipmentModel = require('../models/equipmentModel');
-const EvaluationModel = require('../models/evaluationModel');
+const equipmentModel = require('../models/equipmentModel');
+const evaluationModel = require('../models/evaluationModel');
+const orderModel = require('../models/orderModel');
 
 const adminServices = {
     addProduct: async (data) => {
@@ -38,6 +39,12 @@ const adminServices = {
 
     deleteProduct: async (id) => {
         try {
+            const result = await equipmentModel.deleteOne({ _id: id });
+
+            if (result.deletedCount === 0) {
+                return { status: 404, message: 'Thiết bị không tồn tại' };
+            }
+
             return {
                 status: 200,
                 message: 'Xóa thiết bị thành công',
@@ -50,7 +57,7 @@ const adminServices = {
 
     deleteRate: async (id) => {
         try {
-            const result = await EvaluationModel.deleteOne({ _id: id });
+            const result = await evaluationModel.deleteOne({ _id: id });
 
             if (result.deletedCount === 0) {
                 return { status: 404, message: 'Đánh giá không tồn tại' };
@@ -83,6 +90,74 @@ const adminServices = {
 
     getMonthlyStats: async () => {
         try {
+            const now = new Date();
+            const startDate = new Date(now.getFullYear(), now.getMonth() - 11, 1); // đầu tháng cách đây 11 tháng
+
+            const results = await orderModel.aggregate([
+                // Bước 1: chỉ lấy các list_order trong 12 tháng gần nhất
+                {
+                    $project: {
+                        list_order: {
+                            $filter: {
+                                input: '$list_order',
+                                as: 'item',
+                                cond: { $gte: ['$$item.date', startDate] },
+                            },
+                        },
+                    },
+                },
+                { $unwind: '$list_order' },
+                { $unwind: '$list_order.equipmentList' },
+                {
+                    $lookup: {
+                        from: 'equipment',
+                        localField: 'list_order.equipmentList.equipment_id',
+                        foreignField: '_id',
+                        as: 'equipment_info',
+                    },
+                },
+                { $unwind: '$equipment_info' },
+                {
+                    $addFields: {
+                        order_month: {
+                            $dateToString: { format: '%Y-%m', date: '$list_order.date' },
+                        },
+                        revenue: {
+                            $multiply: [
+                                '$list_order.equipmentList.quantity',
+                                {
+                                    $multiply: [
+                                        '$equipment_info.price',
+                                        { $divide: [{ $subtract: [100, '$equipment_info.discount'] }, 100] },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                },
+                {
+                    $group: {
+                        _id: {
+                            month: '$order_month',
+                            orderId: '$_id',
+                        },
+                        monthlyRevenuePerOrder: { $sum: '$revenue' },
+                    },
+                },
+                {
+                    $group: {
+                        _id: '$_id.month',
+                        totalRevenue: { $sum: '$monthlyRevenuePerOrder' },
+                        orderCount: { $sum: 1 },
+                    },
+                },
+                { $sort: { _id: -1 } }, // tăng dần
+            ]);
+
+            if (results.length === 0) {
+                return { status: 404, message: 'No data found' };
+            }
+
             return { status: 200, data: results };
         } catch (error) {
             console.error('Error:', error);
