@@ -6,7 +6,7 @@ const auth = require('../middlewares/auth');
 
 const routes = (app) => {
     app.use('/auth/api', authRoutes);
-    app.use('/user/api', auth, userRoutes);
+    app.use('/user/api', userRoutes);
     app.use('/admin/api', auth, adminRoutes);
 };
 
